@@ -4,30 +4,20 @@
  *
  */
 
-var lists = {};
-var _lists = {};
+const Joi = require('joi');
 
-var handlers = require('../lib/handlers');
-
-routers = function(connection, data, callback){
-
-    var acceptableMethods = ['get'];
-
-    const endpoints = {
-        "get": {
-            "lists/:client": {
-                endpoint: 'lists/',
-                regex: /^lists\/\d+$/,
-                paramMatches: /[\d]/,
-                sqlQuery: "CALL listsReadPage('*', :client, 99999)",
-                error404: "Could not get users for export data",
-                before200: formatUnits
-            },
-        },
-    }
-    handlers.handleMethods(acceptableMethods, data, endpoints, callback, _lists);
-
-};
+const validationSchema = Joi.object({
+            client:        Joi.number().required(),
+            language:      Joi.string().min(2).max(5),
+            code:          Joi.string().max(45),
+            description:   Joi.string().max(128),
+            active:        Joi.string().allow('Y', 'N'),
+            startDate:     Joi.date().allow(null, ''),
+            endingDate:    Joi.date().allow(null, ''),
+            listGroup:     Joi.string().allow(null),
+            prevLanguage:  Joi.string().min(2).max(5).optional(),
+            prevCode:      Joi.string().max(45).optional()
+    });            
 
 batchItemsPost = async function(client, language, user, data) {
 
@@ -49,62 +39,87 @@ batchItemsPost = async function(client, language, user, data) {
     let createQuery = `INSERT INTO temporaryLists (client, language, user, code, description, active, startDate, endingDate, listGroup, batchId) 
                        VALUES (:client, :language, :user, :code, :description, :active, :startDate, :endingDate, :listGroup, :batchId)`;
     
-    data.splice(0, 1);
-    result = await createTemporaryItems(createQuery, data, payloadObject);
+    result = await tempServices.doInserts(createQuery, data, payloadObject);
     return result;
-}
-
-function createTemporaryItems(createQuery, data, payloadObject) {
     
-    return new Promise(resolve => {
-
-        let payloadKeys = Object.keys(payloadObject);
-        payloadKeys.splice(0, 1);
-
-        const rowLimit = data.length;
-        const columnOffset = 2;
-        
-        var processed = 0;
-        var errors = 0;
-        var errorsRows = {};
-        var payloadStack = [];
-
-        console.log('creating temporary list items', data)
-
-        if (data.length > 0) {
-            data.forEach( (rowData, rowIndex) => {
-
-                // index starts on 1
-                rowData.forEach((column, index) => {
-                    payloadObject[payloadKeys[index + columnOffset]] = column;
-                });
-
-                console.log(payloadObject);
-
-                payloadStack.push(Object.assign({}, payloadObject));
-                connection.config.namedPlaceholders = true;
-                connection.execute(createQuery, payloadObject, function (error, results, fields) { 
-                    if (error) {
-                        console.log(error)
-                        errors = errors + 1;
-                        payloadStack[processed]['sqlErrorNo'] = error.errno;
-                        payloadStack[processed]['sqlErrorMessage'] = error.sqlMessage;
-                        errorsRows[rowIndex+1] = JSON.stringify(payloadStack[processed]);
-                    }
-                    processed = processed + 1;
-                    if (rowLimit == processed) {
-                        resolve({ processed: processed, errors: errors, errorLog: errorsRows} )
-                    }
-                });
-            });
-        } else {
-            resolve({ processed: 0, errors: 1, errorLog:  {1: 'No rows to processed since posted data is empty'} } )
-        }
-    });
 }
 
-_lists.get = handlers.get;
-_lists.post = handlers.post;
+post =  async function(req, res, callback) {
 
-module.exports.routers = routers;
+  // Primary key used to update list: [ client, language, code ]
+  const paramsObject  =  { client       : req.auth.client, 
+                           language     : req.auth.userLanguage,
+                           code         : req.body.code,
+                           description  : req.body.description,
+                           listGroup    : req.body.listGroup,
+                           active       : req.body.active,
+                           startDate    : req.body.startDate,
+                           endingDate   : req.body.endingDate,
+                         }; 
+
+    const validData = validationSchema.validate(paramsObject);
+
+    if (!validData) {
+        res.writeHead(404);
+        res.json({ code: 404, message: 'Provided create data is invalid or not properly structured' });
+    } else {
+        const putQuery = "CALL listItemAPICreate(:client, :language, :code, :description, :listGroup, :active, :startDate, :endingDate)";
+        callback(putQuery, paramsObject);
+    }
+}
+
+put =  async function(req, res, callback) {
+
+    // Primary key used to update list: [ client, language, code ]
+    const paramsObject  =  { client           : req.auth.client, 
+                            language         : req.auth.userLanguage,
+                            code             : req.body.code,
+                            description      : req.body.description,
+                            listGroup        : req.body.listGroup,
+                            active           : req.body.active,
+                            startDate        : req.body.startDate,
+                            endingDate       : req.body.endingDate,
+                            prevLanguage     : req.body.prevLanguage,
+                            prevCode         : req.body.prevCode
+                            }; 
+
+    const validData = validationSchema.validate(paramsObject);
+
+    if (!validData) {
+        res.writeHead(400);
+        res.json({ code: 404, message: 'Provided update data is invalid or not properly structured' });
+    } else {
+        const putQuery = "CALL listsItemAPIUpdate(:client, :language, :code, :description, :listGroup, :active, :startDate, :endingDate, :prevLanguage, :prevCode)";
+        callback(putQuery, paramsObject);
+    }
+}
+
+del = async function(req, res, callback) {
+
+    const validationSchema = Joi.object({
+                client:        Joi.number().required(),
+                language:      Joi.string().min(2).max(5),
+                code:          Joi.string().max(45)
+        }); 
+
+    // Primary key used to update list: [ client, language, code ]
+    const paramsObject = {  client      : req.auth.client, 
+                            language    : req.auth.userLanguage,
+                            code        : req.body.code };
+
+    const validData = validationSchema.validate(paramsObject);
+
+    if (!validData) {
+        res.writeHead(400);
+        res.json({ code: 400, message: 'Provided delete data is invalid or not properly structured' });
+    } else {
+        const deleteQuery = "CALL listItemAPIDelete(:client, :language, :code)";
+        callback(deleteQuery, paramsObject);
+    }
+}
+
 module.exports.batchItemsPost = batchItemsPost;
+
+module.exports.post   = post;
+module.exports.put    = put;
+module.exports.delete = del;

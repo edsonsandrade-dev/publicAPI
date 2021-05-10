@@ -4,76 +4,37 @@
  *
  */
 
-var units = {};
-var _units = {};
 
-var handlers = require('../lib/handlers');
-var tempServices = require('../lib/tempTablesServices');
+batchUnitsPost = async function(client, language, user, data) {
 
-formatUnits = function(result, paramsObject) {
-
-    const translate =   { 
-                          name: 'nome',
-                          code: 'codigo',
-                          location: 'local',
-                          country: 'pais',
-                          description: 'descricao',
-                          active: 'ativo'
-                        }
-
-    let units = [];
-    let keys = Object.keys(translate);
-
-    result.forEach( rowData => {
-        let newExportLine = {};
-        keys.forEach( columnName => {
-            newExportLine[translate[columnName]] = rowData[columnName];
-        })
-        units.push(newExportLine);
-    });
-    return units;
-
-}
-
-routers = function(connection, data, callback) {
-
-    var acceptableMethods = ['get'];
-
-    const endpoints = {
-        "get": {
-            "units/:client": {
-                endpoint: 'units/',
-                regex: /^units\/\d+$/,
-                paramMatches: /[\d]/,
-                sqlQuery: "CALL unitsReadPage('*', :client, 99999)",
-                error404: "Could not get users for export data",
-                before200: formatUnits
-            },
-        },
-    }
-    handlers.handleMethods(acceptableMethods, data, endpoints, callback, _units);
-
-}
-
-batchPost = async function(clientId, language, data, connection) {
+    const batchId = Date.now();
 
     let payloadObject = {
-        client: clientId,
+        client: client,
+        language: language,
+        user: user,
         name: null,
         code: null, 
         location: null,
         country: null,
         description: null,
-        active: null
+        active: null,
+        batchId: batchId
     }
 
-    let createQuery  = 'CALL unitCreate(:client, :name, :code, :location, :country, :description, :active)'
-    data.splice(0, 1);
-    result = await tempServices.doInserts(data, payloadObject, createQuery);
-    return result;
+    try {
+
+        let createQuery = `INSERT INTO temporaryUnits (client, user, name, code, location, country, description, active, batchId) 
+                            VALUES (:client, :user, :name, :code, :location, :country, :description, :active, :batchId)`;
+        
+        result = await tempServices.doInserts(createQuery, data, payloadObject);
+        return result;
+        
+    }
+    catch (error) {
+        console.log(error);
+        return({ processed: 0, errors: 1, errorLog: { 1: 'Some error before doInsert() method!' } })
+    }
 }
 
-_units.get = handlers.get;
-_units.post = handlers.post;
-
-module.exports.routers = routers;
+module.exports.batchUnitsPost = batchUnitsPost;

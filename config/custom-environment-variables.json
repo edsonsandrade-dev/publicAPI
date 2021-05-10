@@ -1,3 +1,5 @@
 {
-    "jwtPrivateKey": "magnetto_jwtPrivateKey"
+    "jwtPrivateKey": "magnetto_jwtPrivateKey",
+    "whitelist": "magnetto_whitelist"
 }
+
